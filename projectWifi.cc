@@ -51,39 +51,61 @@
 //
 #include <ctime> 
 #include "ns3/core-module.h"
+#include "ns3/node.h"
 #include "ns3/mobility-module.h"
 #include "ns3/wifi-module.h"
 #include "ns3/internet-module.h"
+#include <string.h>
 
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE ("WifiSimpleAdhoc");
 
-void ReceivePacket (Ptr<Socket> socket)
-{
-  while (socket->Recv ())
-    {
-      NS_LOG_UNCOND ("Received one packet!");
-    }
+typedef struct agent {
+  string estado;
+} agente, *agente_ptr = &agente;
+
+// get the id's of the stored nodes on the environment
+int[] getEnvironment(*agent a, NodeContainer container) {
+  NodeContainer::Iterator i;
+  int[container.GetN()] nodes_id;
+  for(i = container.Begin(); i != container.End(); ++i) {
+    nodes_id[i] = container.Get(i).GetId();
+  }
+  
+  return nodes_id;
 }
 
-static void GenerateTraffic (Ptr<Socket> socket, uint32_t pktSize,
-                             uint32_t pktCount, Time pktInterval )
-{
-  if (pktCount > 0)
-    {
-      socket->Send (Create<Packet> (pktSize));
-      Simulator::Schedule (pktInterval, &GenerateTraffic,
+// get the next nearest node to make a choice | use dijkstra to get the closest path
+int getNextNode(NodeContainer container, int node_id) {
+  NodeContainer::Iterator i;
+  for(i = container.Begin(); i != container.End(); ++i){
+    if(container.Get(i).GetId() == node_id){
+      if(container.Get(++i) == -1)
+        return container.Get(i).GetId();
+      else
+        return container.Get(++i).GetId();
+    }
+  }
+}
+
+void ReceivePacket (Ptr<Socket> socket) {
+  while (socket->Recv ()){
+    NS_LOG_UNCOND ("Received one packet!");
+  }
+}
+
+static void GenerateTraffic (Ptr<Socket> socket, uint32_t pktSize, uint32_t pktCount, Time pktInterval ) {
+  if (pktCount > 0) {
+    socket->Send (Create<Packet> (pktSize));
+    Simulator::Schedule (pktInterval, &GenerateTraffic,
                            socket, pktSize,pktCount - 1, pktInterval);
-    }
-  else
-    {
-      socket->Close ();
-    }
+  }else{
+    socket->Close ();
+  }
 }
 
-int main (int argc, char *argv[])
-{
+int main (int argc, char *argv[]) {
   srand((unsigned)time(0));
   std::string phyMode ("DsssRate1Mbps");
   double rss = -80;  // -dBm
@@ -118,10 +140,9 @@ int main (int argc, char *argv[])
 
   // The below set of helpers will help us to put together the wifi NICs we want
   WifiHelper wifi;
-  if (verbose)
-    {
-      wifi.EnableLogComponents ();  // Turn on all Wifi logging
-    }
+  if (verbose){
+    wifi.EnableLogComponents ();  // Turn on all Wifi logging
+  }
   wifi.SetStandard (WIFI_PHY_STANDARD_80211b);
 
   YansWifiPhyHelper wifiPhy =  YansWifiPhyHelper::Default ();
