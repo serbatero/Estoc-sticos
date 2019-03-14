@@ -196,7 +196,8 @@ int main (int argc, char *argv[])
                                     source, packetSize, numPackets, interPacketInterval);
     count = count+2;
   }
-  
+  AsciiTraceHelper ascii;
+  wifiPhy.EnableAsciiAll (ascii.CreateFileStream ("ProyectoEstocasticos.tr"));
   Simulator::Run ();
   Simulator::Destroy ();
 
