@@ -197,7 +197,9 @@ int main (int argc, char *argv[])
     count = count+2;
   }
   AsciiTraceHelper ascii;
-  wifiPhy.EnableAsciiAll (ascii.CreateFileStream ("ProyectoEstocasticos.tr"));
+  wifiPhy.EnableAsciiAll (ascii.CreateFileStream ("ProyectoEstocasticosWifiPhy.tr"));
+  mobility.EnableAsciiAll (ascii.CreateFileStream ("ProyectoEstocasticosMobility.tr"));
+  internet.EnableAsciiIpv4 (ascii.CreateFileStream ("ProyectoEstocasticosInternet.tr"),c);
   Simulator::Run ();
   Simulator::Destroy ();
 
