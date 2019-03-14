@@ -51,65 +51,73 @@
 //
 #include <ctime> 
 #include "ns3/core-module.h"
-#include "ns3/node.h"
 #include "ns3/mobility-module.h"
 #include "ns3/wifi-module.h"
 #include "ns3/internet-module.h"
-#include <string.h>
+#include "ns3/node.h"
+#include "ns3/vector.h"
 
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE ("WifiSimpleAdhoc");
 
-typedef struct agent {
-  string estado;
-} agente, *agente_ptr = &agente;
+typedef struct agente{
+  int estado;
+} agent;
 
-// get the id's of the stored nodes on the environment
-int[] getEnvironment(*agent a, NodeContainer container) {
-  NodeContainer::Iterator i;
-  int[container.GetN()] nodes_id;
-  for(i = container.Begin(); i != container.End(); ++i) {
-    nodes_id[i] = container.Get(i).GetId();
+agente a;
+NodeContainer c;
+
+int changeState(Ptr<Node> actual_node, NodeContainer container){
+  uint32_t nodes_size = container.GetN();
+  double minimo = 100000;
+  int id_minimo = 0;
+  for(uint32_t i = 0; i < nodes_size; ++i){
+    double distancia = container.Get(i)->GetObject<MobilityModel>()->GetDistanceFrom(container.Get(actual_node->GetId())->GetObject<MobilityModel>());
+    NS_LOG_UNCOND ("Mi Distancia Al Nodo "<< i << " Es: " << distancia << "m");
+    if(distancia < minimo && distancia > 0.0){
+      minimo = distancia;
+      id_minimo = container.Get(i)->GetId();
+    }
   }
-  
-  return nodes_id;
+  NS_LOG_UNCOND ("La Distancia Minima Es: " << minimo << "m \n");
+  a.estado = id_minimo;
+  return id_minimo;
 }
 
-// get the next nearest node to make a choice | use dijkstra to get the closest path
-int getNextNode(NodeContainer container, int node_id) {
-  NodeContainer::Iterator i;
-  for(i = container.Begin(); i != container.End(); ++i){
-    if(container.Get(i).GetId() == node_id){
-      if(container.Get(++i) == -1)
-        return container.Get(i).GetId();
-      else
-        return container.Get(++i).GetId();
+void ReceivePacket (Ptr<Socket> socket){
+  while (socket->Recv ()){
+    if(a.estado != 0){
+      NS_LOG_UNCOND("===========================================================================");
+      NS_LOG_UNCOND("MI ESTADO ACTUAL ES: " << socket->GetNode()->GetId() << "\n");
+      NS_LOG_UNCOND("EL Nodo en el que estoy, recibio un paquete \n");
+      changeState(socket->GetNode(), c);
+      
     }
   }
 }
 
-void ReceivePacket (Ptr<Socket> socket) {
-  while (socket->Recv ()){
-    NS_LOG_UNCOND ("Received one packet!");
-  }
-}
-
-static void GenerateTraffic (Ptr<Socket> socket, uint32_t pktSize, uint32_t pktCount, Time pktInterval ) {
-  if (pktCount > 0) {
+static void GenerateTraffic (Ptr<Socket> socket, uint32_t pktSize, uint32_t pktCount, Time pktInterval ){
+  if (pktCount > 0){
     socket->Send (Create<Packet> (pktSize));
-    Simulator::Schedule (pktInterval, &GenerateTraffic,
-                           socket, pktSize,pktCount - 1, pktInterval);
+    Simulator::Schedule (pktInterval, &GenerateTraffic, socket, pktSize,pktCount - 1, pktInterval);
+    if(a.estado == 0){
+      NS_LOG_UNCOND("===========================================================================");
+      NS_LOG_UNCOND("MI ESTADO ACTUAL ES: " << socket->GetNode()->GetId() << "\n");
+      NS_LOG_UNCOND("EL Nodo en el que estoy, envio un paquete De tamano " << pktSize << " Bytes \n");
+      changeState(socket->GetNode(), c);
+      
+    }
   }else{
     socket->Close ();
   }
 }
 
-int main (int argc, char *argv[]) {
+int main (int argc, char *argv[]){
   srand((unsigned)time(0));
   std::string phyMode ("DsssRate1Mbps");
   double rss = -80;  // -dBm
-  uint32_t packetSize = 1000; // bytes
+  uint32_t packetSize = (rand()%1024)+1; // bytes
   uint32_t numPackets = (rand()%26)+1;
   double interval = 1.0; // seconds
   bool verbose = false;
@@ -135,13 +143,24 @@ int main (int argc, char *argv[]) {
   Config::SetDefault ("ns3::WifiRemoteStationManager::NonUnicastMode",
                       StringValue (phyMode));
 
-  NodeContainer c;
   c.Create (5);
+  
+  uint32_t nNodes = c.GetN ();
+  uint32_t nodes_id[nNodes];
+  
+  for(uint32_t i = 0; i < nNodes; ++i) {
+    Ptr<ns3::Node> node_p = c.Get (i);
+    nodes_id[i] = node_p->GetId ();
+    std::printf("En el nodo: %d \n", nodes_id[i] );
+  }
+  
 
   // The below set of helpers will help us to put together the wifi NICs we want
   WifiHelper wifi;
   if (verbose){
     wifi.EnableLogComponents ();  // Turn on all Wifi logging
+    LogComponentEnable ("UdpEchoClientApplication", LOG_LEVEL_INFO);
+    LogComponentEnable ("UdpEchoServerApplication", LOG_LEVEL_INFO);
   }
   wifi.SetStandard (WIFI_PHY_STANDARD_80211b);
 
@@ -186,38 +205,41 @@ int main (int argc, char *argv[]) {
   mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
   InternetStackHelper internet;
   internet.Install (c);
+  
 
   Ipv4AddressHelper ipv4;
   NS_LOG_INFO ("Assign IP Addresses.");
   ipv4.SetBase ("10.1.1.0", "255.255.255.0");
   Ipv4InterfaceContainer i = ipv4.Assign (devices);
 
-  TypeId tid = TypeId::LookupByName ("ns3::UdpSocketFactory");
-  Ptr<Socket> recvSink = Socket::CreateSocket (c.Get (0), tid);
-  InetSocketAddress local = InetSocketAddress (Ipv4Address::GetAny (), 80);
-  recvSink->Bind (local);
-  recvSink->SetRecvCallback (MakeCallback (&ReceivePacket));
 
-  Ptr<Socket> source = Socket::CreateSocket (c.Get (1), tid);
+  TypeId tid = TypeId::LookupByName ("ns3::UdpSocketFactory");
+  for(uint32_t i = 1; i < c.GetN(); ++i ){
+    Ptr<Socket> recvSink = Socket::CreateSocket (c.Get (i), tid);
+    InetSocketAddress local = InetSocketAddress (Ipv4Address::GetAny (), 80);
+    recvSink->Bind (local);
+    recvSink->SetRecvCallback (MakeCallback (&ReceivePacket));
+  }
+
+  Ptr<Socket> source = Socket::CreateSocket (c.Get (0), tid);
   InetSocketAddress remote = InetSocketAddress (Ipv4Address ("255.255.255.255"), 80);
   source->SetAllowBroadcast (true);
   source->Connect (remote);
 
   // Tracing
   wifiPhy.EnablePcap ("wifi-simple-adhoc", devices);
-
-
+  
   int count = 2;
-  while(count < 10){
+  while(count < 100){
     // Output what we are doing
-    numPackets = (rand()%26)+1;
-    NS_LOG_UNCOND ("Testing " << numPackets  << " packets sent with receiver rss " << rss );
+    numPackets = (rand()%260)+1;
+    a.estado = source->GetNode ()->GetId ();
     Simulator::ScheduleWithContext (source->GetNode ()->GetId (),
                                     Seconds (count), &GenerateTraffic,
                                     source, packetSize, numPackets, interPacketInterval);
-    count = count+2;
+    count = count+10;
   }
-  
+
   Simulator::Run ();
   Simulator::Destroy ();
 
